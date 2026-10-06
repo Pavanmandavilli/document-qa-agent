@@ -11,6 +11,7 @@ Upload PDF documents and ask questions about their content. The app searches the
 - PostgreSQL with pgvector to store and search document chunks
 - Sentence Transformers to create text embeddings
 - Gemini by default; OpenRouter and Groq are also supported
+- LangSmith for LangGraph tracing and observability
 - Docker Compose to run the API and database
 - Server-Sent Events (SSE) for `/ask` responses
 
@@ -78,3 +79,14 @@ flowchart TD
     G --> H[Check answer and citations]
     H --> I[Send final answer and citations]
 ```
+
+## Available endpoints
+
+| Method | Endpoint       | Purpose                                    |
+| ------ | -------------- | ------------------------------------------ |
+| `POST` | `/documents`   | Upload and index a PDF document            |
+| `POST` | `/ask`         | Ask a question and receive an SSE response |
+| `GET`  | `/health`      | Check API and vector database health       |
+| `GET`  | `/`            | Get basic service information              |
+| `WS`   | `/ws/progress` | Receive live agent progress updates        |
+| `GET`  | `/docs`        | Open interactive API documentation         |
