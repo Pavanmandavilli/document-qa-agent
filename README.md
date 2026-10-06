@@ -80,6 +80,20 @@ flowchart TD
     H --> I[Send final answer and citations]
 ```
 
+## Environment setup
+
+Copy `.env.example` to `.env`, then add your API keys and choose the LLM provider. Keep `.env` private; it contains secrets.
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Build and start the API and database containers:
+
+```powershell
+docker compose up --build -d
+```
+
 ## Available endpoints
 
 | Method | Endpoint       | Purpose                                    |
