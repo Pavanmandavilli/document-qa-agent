@@ -1,6 +1,7 @@
 from collections.abc import Iterable, Iterator
 from itertools import islice
 from typing import TypeVar
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from app.ingestion.parser import PageText
 from app.schemas.models import ChunkRecord
@@ -14,15 +15,11 @@ def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 150) -> Iterato
     if overlap < 0 or overlap >= chunk_size:
         raise ValueError("overlap must be >= 0 and smaller than chunk_size")
 
-    start = 0
-    while start < len(text):
-        end = min(start + chunk_size, len(text))
-        chunk = text[start:end].strip()
-        if chunk:
-            yield chunk
-        if end >= len(text):
-            break
-        start = end - overlap
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=overlap,
+    )
+    yield from splitter.split_text(text)
 
 
 def iter_document_chunks(
