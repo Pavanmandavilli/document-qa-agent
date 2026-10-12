@@ -219,34 +219,4 @@ class PgVectorRetriever(Retriever):
             return False
 
 
-class InMemoryRetriever(Retriever):
-    def __init__(self) -> None:
-        self._items: list[tuple[UUID, str, EmbeddedChunk]] = []
 
-    async def add_document(self, document_id, filename, chunks):
-        self._items.extend((document_id, filename, c) for c in chunks)
-
-    async def search(self, query: str, query_embedding: list[float], top_k: int):
-        vector_chunks = []
-        all_chunks = []
-        for document_id, filename, chunk in self._items:
-            score = sum(a * b for a, b in zip(query_embedding, chunk.embedding, strict=True))
-            retrieved = RetrievedChunk(
-                document_id=document_id,
-                document=filename,
-                page=chunk.page,
-                chunk_index=chunk.index,
-                content=chunk.text,
-                score=score,
-                vector_score=score,
-            )
-            vector_chunks.append(retrieved)
-            all_chunks.append(retrieved)
-        vector_chunks.sort(key=lambda item: item.score, reverse=True)
-
-        candidate_k = max(top_k * 2, top_k)
-        return _fuse_rankings(
-            vector_chunks[:candidate_k],
-            _bm25_rank(query, all_chunks)[:candidate_k],
-            top_k,
-        )
