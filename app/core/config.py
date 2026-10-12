@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     stream_idle_timeout: float = 30.0
     agent_step_timeout: float = 45.0
     request_timeout: float = 180.0
-    max_agent_steps: int = 8
+    max_agent_steps: int = 10
     enable_checker: bool = True
     max_answer_retries: int = 1
 

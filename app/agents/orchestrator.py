@@ -91,7 +91,7 @@ class Orchestrator:
         self._emit(writer, "agent_step", payload)
         return steps
 
-    def _budget(self, state: OrchestrationState) -> float:
+    def _remaining_step_timeout(self, state: OrchestrationState) -> float:
         remaining = state["deadline"] - time.monotonic()
         if remaining <= 0:
             raise TimeoutError("request deadline exceeded")
@@ -164,13 +164,15 @@ class Orchestrator:
         )
         graph.add_edge("refusal", "complete")
         graph.add_edge("complete", END)
+        # logger.info("LangGraph Mermaid diagram:\n%s",
+        #         graph.get_graph().draw_mermaid())
         return graph.compile()
 
     async def _route(self, state: OrchestrationState) -> dict[str, Any]:
         writer = get_stream_writer()
         steps = self._step(writer, state, "router", status="routing")
         decision = await asyncio.wait_for(
-            self.router.route(state["question"]), self._budget(state)
+            self.router.route(state["question"]), self._remaining_step_timeout(state)
         )
         self._step(
             writer,
@@ -193,18 +195,11 @@ class Orchestrator:
             token = REFUSAL
         return {"final_token": token}
 
-    @staticmethod
-    def _route_destination(state: OrchestrationState) -> str:
-        decision = state["decision"]
-        if decision is None:
-            raise RuntimeError("router did not return a decision")
-        return "retrieve" if decision.route == "document_qa" else "reply"
-
     async def _retrieve(self, state: OrchestrationState) -> dict[str, Any]:
         writer = get_stream_writer()
         steps = self._step(writer, state, "retriever", status="retrieving")
         chunks = await asyncio.wait_for(
-            self.retriever.retrieve(state["question"]), self._budget(state)
+            self.retriever.retrieve(state["question"]), self._remaining_step_timeout(state)
         )
         self._step(
             writer,
@@ -215,10 +210,6 @@ class Orchestrator:
             chunks=len(chunks),
         )
         return {"chunks": chunks, "steps": steps}
-
-    @staticmethod
-    def _retrieval_destination(state: OrchestrationState) -> str:
-        return "answer" if state["chunks"] else "refusal"
 
     async def _answer(self, state: OrchestrationState) -> dict[str, Any]:
         writer = get_stream_writer()
@@ -238,13 +229,6 @@ class Orchestrator:
                 self._emit(writer, "token", {"content": token})
         return {"answer": "".join(parts).strip(), "steps": steps}
 
-    def _answer_destination(self, state: OrchestrationState) -> str:
-        if is_refusal(state["answer"]):
-            return "refusal"
-        if not self.settings.enable_checker:
-            return "answer_success"
-        return "checker"
-
     async def _answer_success(self, state: OrchestrationState) -> dict[str, Any]:
         return {
             "citations": citations_from_text(state["answer"], state["chunks"]),
@@ -260,7 +244,7 @@ class Orchestrator:
                 self.checker.verify(
                     state["question"], state["answer"], state["chunks"]
                 ),
-                self._budget(state),
+                self._remaining_step_timeout(state),
             )
         except Exception as exc:
             logger.warning(
@@ -290,13 +274,6 @@ class Orchestrator:
             )
         return {"verdict": verdict, "steps": steps}
 
-    @staticmethod
-    def _checker_destination(state: OrchestrationState) -> str:
-        verdict = state["verdict"]
-        if verdict is None:
-            raise RuntimeError("checker did not return a verdict")
-        return "verified" if verdict.supported else "reject"
-
     async def _verified(self, state: OrchestrationState) -> dict[str, Any]:
         verdict = state["verdict"]
         if verdict is None:
@@ -318,13 +295,6 @@ class Orchestrator:
         )
         return {"attempt": state["attempt"] + 1, "retry_reason": verdict.reason}
 
-    def _retry_destination(self, state: OrchestrationState) -> str:
-        return (
-            "answer"
-            if state["attempt"] <= self.settings.max_answer_retries + 1
-            else "refusal"
-        )
-
     async def _refusal(self, state: OrchestrationState) -> dict[str, Any]:
         return {"final_token": REFUSAL, "citations": []}
 
@@ -332,6 +302,40 @@ class Orchestrator:
         self._finish(get_stream_writer(), state)
         return {}
 
+
+    @staticmethod
+    def _route_destination(state: OrchestrationState) -> str:
+        decision = state["decision"]
+        if decision is None:
+            raise RuntimeError("router did not return a decision")
+        return "retrieve" if decision.route == "document_qa" else "reply"
+
+    @staticmethod
+    def _retrieval_destination(state: OrchestrationState) -> str:
+        return "answer" if state["chunks"] else "refusal"
+
+    def _answer_destination(self, state: OrchestrationState) -> str:
+        if is_refusal(state["answer"]):
+            return "refusal"
+        if not self.settings.enable_checker:
+            return "answer_success"
+        return "checker"
+    
+    @staticmethod
+    def _checker_destination(state: OrchestrationState) -> str:
+        verdict = state["verdict"]
+        if verdict is None:
+            raise RuntimeError("checker did not return a verdict")
+        return "verified" if verdict.supported else "reject"
+
+    def _retry_destination(self, state: OrchestrationState) -> str:
+        return (
+            "answer"
+            if state["attempt"] <= self.settings.max_answer_retries + 1
+            else "refusal"
+        )
+    
+    
     @timed
     async def run(self, question: str) -> AsyncIterator[Event]:
         request_id = uuid4().hex[:8]
